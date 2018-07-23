@@ -1,4 +1,4 @@
-package com.dragos.util;
+package com.dragos.highestscores.util;
 
 import java.util.List;
 import java.util.concurrent.*;
@@ -10,32 +10,36 @@ import java.util.logging.Logger;
  */
 public class ExpiringMap<K,V> {
 
-    private Logger _logger = Logger.getLogger(getClass().getName());
+    private static final int DEFAULT_CAPACITY = 16;
+    private static final float DEFAULT_LOAD_FACTOR = 0.75f;
+    private static final int DEFAULT_CONCURRENCY_LEVEL = 4;
 
-    private long _timeoutInMs;
-    private ConcurrentMap<K, Tuple<Long, V>> _keyToValue;
+    private Logger logger = Logger.getLogger(getClass().getName());
 
-    private ExecutorService _expirationService = Executors.newSingleThreadExecutor(new NamedThreadFactory(getClass().getSimpleName() + "-ExpirationThread"));
-    private ScheduledExecutorService _expirationScheduler = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory(getClass().getSimpleName() + "-ExpirationScheduler"));
-    private Thread _monitorThread;
+    private long timeoutInMs;
+    private ConcurrentMap<K, Tuple<Long, V>> _keyToValue = new ConcurrentHashMap<>(DEFAULT_CAPACITY, DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL);
 
-    private List<ExpirationListener<K, V>> _listeners;
+    private ExecutorService expirationService = Executors.newSingleThreadExecutor(new NamedThreadFactory(getClass().getSimpleName() + "-ExpirationThread"));
+    private ScheduledExecutorService expirationScheduler = Executors.newScheduledThreadPool(DEFAULT_CONCURRENCY_LEVEL, new NamedThreadFactory(getClass().getSimpleName() + "-ExpirationScheduler"));
+
+    private Thread monitorThread;
+
+    private List<ExpirationListener<K, V>> listeners;
 
     public ExpiringMap(long timeoutInMs) {
 
         if (timeoutInMs <= 0)
             throw new IllegalArgumentException("Timeout arg is < 0 " + timeoutInMs);
 
-        _timeoutInMs = timeoutInMs;
+        this.timeoutInMs = timeoutInMs;
 
-        _keyToValue = new ConcurrentHashMap<>();
-        _listeners = new CopyOnWriteArrayList<>();
+        listeners = new CopyOnWriteArrayList<>();
 
-        _monitorThread = new Thread(() -> {
+        monitorThread = new Thread(() -> {
 
             while (!Thread.currentThread().isInterrupted()) {
 
-                _logger.info("ExpiringMap size " + _keyToValue.size());
+                logger.info("ExpiringMap size " + _keyToValue.size());
 
                 try {
                     Thread.sleep(10000);
@@ -44,8 +48,8 @@ public class ExpiringMap<K,V> {
                 }
             }
         });
-        _monitorThread.setName("ExpiringMap-Monitor-Thread");
-        _monitorThread.start();
+        monitorThread.setName("ExpiringMap-Monitor-Thread");
+        monitorThread.start();
     }
 
     public V put(K key, V value) {
@@ -63,7 +67,7 @@ public class ExpiringMap<K,V> {
 
     private void scheduleExpiration(K key, long insertTimeInMs) {
 
-        long originalExpirationTime = insertTimeInMs + _timeoutInMs;
+        long originalExpirationTime = insertTimeInMs + timeoutInMs;
 
         Runnable expirationRunnable = () -> {
 
@@ -71,15 +75,15 @@ public class ExpiringMap<K,V> {
                 Tuple<Long, V> insertTimeAndValue = _keyToValue.get(key);
                 if (insertTimeAndValue == null) //already removed
                     return;
-                long updatedExpirationTime = insertTimeAndValue.getFirst() + _timeoutInMs;
+                long updatedExpirationTime = insertTimeAndValue.getFirst() + timeoutInMs;
                 if (updatedExpirationTime == originalExpirationTime) //might have been updated
                     notifyListeners(key, insertTimeAndValue.getSecond());
             } catch (Throwable e) {
-                _logger.log(Level.WARNING, "Unexpected throwable while removing expired entry", e);
+                logger.log(Level.WARNING, "Unexpected throwable while removing expired entry", e);
             }
         };
 
-        _expirationScheduler.schedule(expirationRunnable, _timeoutInMs, TimeUnit.MILLISECONDS);
+        expirationScheduler.schedule(expirationRunnable, timeoutInMs, TimeUnit.MILLISECONDS);
     }
 
     public V putIfAbsent(K key, V value) {
@@ -124,27 +128,27 @@ public class ExpiringMap<K,V> {
 
     public void close() {
 
-        _logger.info("Expiring map on closing has entries " + _keyToValue.size());
+        logger.info("Expiring map on closing has entries " + _keyToValue.size());
 
-        _expirationScheduler.shutdownNow();
-        _expirationService.shutdownNow();
-        _monitorThread.interrupt();
+        expirationScheduler.shutdownNow();
+        expirationService.shutdownNow();
+        monitorThread.interrupt();
     }
 
     private void notifyListeners(K key, V value) {
 
-        _listeners.forEach(listener -> {
+        listeners.forEach(listener -> {
             try {
                 listener.entryExpired(key, value);
             } catch (Throwable t) {
-                _logger.log(Level.WARNING, "Exception in listener ", t);
+                logger.log(Level.WARNING, "Exception in listener ", t);
             }
         });
     }
 
     public void addListener(ExpirationListener<K, V> expirationListener) {
 
-        _listeners.add(expirationListener);
+        listeners.add(expirationListener);
     }
 
     public static void main(String[] args) throws InterruptedException {

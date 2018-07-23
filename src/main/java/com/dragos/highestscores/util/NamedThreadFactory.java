@@ -1,4 +1,4 @@
-package com.dragos.util;
+package com.dragos.highestscores.util;
 
 import java.util.concurrent.ThreadFactory;
 

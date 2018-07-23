@@ -1,4 +1,4 @@
-package com.dragos.util;
+package com.dragos.highestscores.util;
 
 /**
  * Created by dragos on 19.07.2018.
