@@ -65,7 +65,7 @@ public class BestScoresTable {
 
     public SortedMap<Integer, Integer> getScores() {
 
-        synchronized (scoreToUserId) {
+        synchronized (this) {
             return new TreeMap<>(scoreToUserId);
         }
     }
