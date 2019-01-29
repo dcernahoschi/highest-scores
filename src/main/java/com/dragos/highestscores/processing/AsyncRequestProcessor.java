@@ -40,7 +40,8 @@ public class AsyncRequestProcessor implements RequestProcessor {
         processingState = new ProcessingState();
 
         processingService = Executors.newFixedThreadPool(DEFAULT_CONCURRENCY, new NamedThreadFactory(getClass() + "-ProcessingServiceThread"));
-        processingService.submit(new ProcessingRunnable());
+        for (int i = 0; i < DEFAULT_CONCURRENCY; i++)
+           processingService.submit(new ProcessingRunnable());
     }
 
     public void close() {
